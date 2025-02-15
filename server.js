@@ -210,10 +210,9 @@ app.post('/login', async (req, res) => {
 app.post('/products', async (req, res) => {
   console.log('Request body:', req.body);
   try {
-    const { lotDate, cost } = req.body;
+    const { lotDate } = req.body;
     const product = new Product({
       lotDate,
-      cost: Number(cost),
       listProduct: []
     });
     await product.save();
@@ -300,7 +299,6 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     const totalCost = products.reduce((sum, product) => {
       console.log('Product cost:', {
         lotDate: product.lotDate,
-        cost: product.cost,
         listProductCount: product.listProduct.length
       });
       return sum + (product.cost || 0);
@@ -688,7 +686,7 @@ app.put('/users/:userId', async (req, res) => {
 app.put('/products/:productId', async (req, res) => {
   try {
     const { productId } = req.params;
-    const { lotDate, cost } = req.body;
+    const { lotDate } = req.body;
 
     const product = await Product.findById(productId);
     
@@ -701,7 +699,6 @@ app.put('/products/:productId', async (req, res) => {
 
     // อัพเดตข้อมูล
     product.lotDate = lotDate;
-    product.cost = Number(cost);
     
     await product.save();
 
