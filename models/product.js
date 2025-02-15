@@ -13,6 +13,10 @@ const ListProductSchema = new mongoose.Schema({
     type: Number, 
     required: true 
   },
+  cost: { 
+    type: Number, 
+    required: true 
+  },
   image: { 
     type: String,  // สำหรับเก็บ path หรือ URL ของรูปภาพ
     required: true
