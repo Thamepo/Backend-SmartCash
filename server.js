@@ -763,15 +763,14 @@ app.put('/products/:productId/item/:itemId', upload.single('image'), async (req,
       });
     }
 
-    // Find the product item to update
-    const productItem = product.listProduct.id(productItemId);
+
+    const productItem = product.listProduct.id(itemId);
     if (!productItem) {
       return res.status(404).json({
         success: false,
         message: 'ไม่พบสินค้าที่ต้องการแก้ไข'
       });
     }
-
     // Handle image upload if a new image is provided
     let imageId = productItem.image; // Keep existing image by default
     if (req.file) {
