@@ -13,7 +13,7 @@ const ListProductSchema = new mongoose.Schema({
     type: Number, 
     required: true 
   },
-  cost: { 
+  itemcost: { 
     type: Number, 
     required: true 
   },
