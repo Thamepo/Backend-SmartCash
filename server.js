@@ -137,6 +137,7 @@ app.post('/orders', async (req, res) => {
         quantity: item.quantity,
         price: item.price,
         category: item.category,
+        itemCost: item.itemCost,
         barcode: item.barcode,
         image: item.image
       })),
@@ -557,6 +558,7 @@ app.get('/products/barcode/:barcode', async (req, res) => {
         name: item.name,
         category: item.category,
         price: item.price,
+        itemCost: item.itemCost,
         image: item.image,
         barcode: item._id
       }
@@ -751,7 +753,7 @@ app.put('/products/:productId/item', upload.single('image'), async (req, res) =>
   let uploadStream;
   try {
     const { productId } = req.params;
-    const { productName, category, price, quantity, productItemId } = req.body;
+    const { productName, category, price, quantity, itemCost } = req.body;
 
     const product = await Product.findById(productId);
     if (!product) {
@@ -800,6 +802,7 @@ app.put('/products/:productId/item', upload.single('image'), async (req, res) =>
     productItem.name = productName;
     productItem.category = category;
     productItem.price = Number(price);
+    productItem.itemCost = Number(itemCost);
     productItem.quantity = Number(quantity);
     if (imageId) {
       productItem.image = imageId;
