@@ -281,104 +281,80 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       }
     });
 
-    // 2. ดึงข้อมูล products ทั้งหมดที่เกี่ยวข้อง
+    // 2. ดึงข้อมูล products ทั้งหมดที่อยู่ในช่วงเวลา
     const products = await Product.find({
       lotDate: {
-        $lte: endDate // ดึงล็อตสินค้าที่นำเข้าก่อนหรือในเดือนที่ต้องการ
+        $lte: endDate
       }
     });
 
-    // 3. สร้าง map ของต้นทุนสินค้าแต่ละชิ้นจาก products
-    const productCostMap = new Map();
-    products.forEach(product => {
-      // คำนวณต้นทุนต่อชิ้นของแต่ละสินค้าในล็อต
-      const totalItems = product.listProduct.reduce((sum, item) => sum + item.quantity, 0);
-      const costPerItem = totalItems > 0 ? product.cost / totalItems : 0;
-      
-      product.listProduct.forEach(item => {
-        // ใช้ barcode เป็น key ถ้ามี ไม่งั้นใช้ชื่อสินค้า
-        const key = item.barcode || item.name;
-        productCostMap.set(key, {
-          cost: costPerItem,
-          name: item.name,
-          category: item.category
-        });
-      });
-    });
+    // 3. คำนวณต้นทุนรวมจากทุกล็อตสินค้า
+    const totalCost = products.reduce((sum, product) => sum + (product.cost || 0), 0);
 
-    // 4. คำนวณข้อมูลรายวัน
+    // 4. คำนวณยอดขายรวมจากทุก orders
+    const totalSales = orders.reduce((sum, order) => sum + order.totalAmount, 0);
+
+    // 5. คำนวณกำไร/ขาดทุนรวม (กำไร = รายได้ - ต้นทุน)
+    const totalProfit = totalSales - totalCost;
+
+    // 6. คำนวณข้อมูลรายวัน
     const dailyData = {};
+    
+    // เตรียมข้อมูลรายวัน
     orders.forEach(order => {
       const dayKey = new Date(order.orderDate).getDate().toString();
-      
       if (!dailyData[dayKey]) {
         dailyData[dayKey] = {
-          sales: 0,
-          costs: 0,
-          profit: 0,
-          itemsSold: []
+          sales: 0
         };
       }
-
-      // คำนวณรายได้และต้นทุนของแต่ละ order
-      order.items.forEach(item => {
-        const productInfo = productCostMap.get(item.barcode) || productCostMap.get(item.productName);
-        const itemCost = productInfo ? productInfo.cost * item.quantity : 0;
-        const itemRevenue = item.price * item.quantity;
-
-        dailyData[dayKey].sales += itemRevenue;
-        dailyData[dayKey].costs += itemCost;
-        dailyData[dayKey].itemsSold.push({
-          name: item.productName,
-          quantity: item.quantity,
-          revenue: itemRevenue,
-          cost: itemCost,
-          profit: itemRevenue - itemCost
-        });
-      });
-
-      // คำนวณกำไรของวัน
-      dailyData[dayKey].profit = dailyData[dayKey].sales - dailyData[dayKey].costs;
+      dailyData[dayKey].sales += order.totalAmount;
     });
 
-    // 5. สรุปข้อมูลสำหรับส่งกลับ
-    const summary = {
-      dailySales: {},
-      dailyCosts: {},
-      dailyProfits: {},
-      totalSales: 0,
-      totalCosts: 0,
-      totalProfit: 0
-    };
+    // คำนวณต้นทุนเฉลี่ยต่อวัน
+    const daysInMonth = endDate.getDate();
+    const dailyAverageCost = totalCost / daysInMonth;
 
-    // รวมข้อมูลรายวันและคำนวณยอดรวม
+    // สร้างข้อมูลกำไร/ขาดทุนรายวัน
+    const dailySales = {};
+    const dailyProfits = {};
+    const dailyCosts = {};
+
     Object.entries(dailyData).forEach(([day, data]) => {
-      summary.dailySales[day] = data.sales;
-      summary.dailyCosts[day] = data.costs;
-      summary.dailyProfits[day] = data.profit;
-      
-      summary.totalSales += data.sales;
-      summary.totalCosts += data.costs;
-      summary.totalProfit += data.profit;
+      dailySales[day] = data.sales;
+      dailyCosts[day] = dailyAverageCost;
+      dailyProfits[day] = data.sales - dailyAverageCost;
+    });
+
+    console.log('Debug ค่าที่คำนวณได้:', {
+      totalSales,
+      totalCost,
+      totalProfit,
+      firstDayProfit: dailyProfits['1'], // ตัวอย่างกำไรวันแรก
     });
 
     res.json({
       success: true,
       data: {
-        ...summary,
+        totalSales,
+        totalCost,
+        totalProfit,
+        dailySales,
+        dailyProfits,
+        dailyCosts,
+        topProducts: [], // ปรับตามที่คุณต้องการ
         orderCount: orders.length
       }
     });
 
   } catch (error) {
-    console.error('Error calculating profits:', error);
+    console.error('Error calculating dashboard data:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการคำนวณกำไร'
+      message: 'เกิดข้อผิดพลาดในการคำนวณข้อมูล Dashboard'
     });
   }
 });
-
 app.get('/orders', async (req, res) => {
   // เพิ่ม console.log เพื่อตรวจสอบการเรียก route
   console.log('Request received at /orders');
