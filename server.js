@@ -749,10 +749,10 @@ app.delete('/products/:productId', async (req, res) => {
 });
 
 //แก้ไขรายการสินค้า
-app.put('/products/:productId/item', upload.single('image'), async (req, res) => {
+app.put('/products/:productId/item/:itemId', upload.single('image'), async (req, res) => {
   let uploadStream;
   try {
-    const { productId } = req.params;
+    const { productId, itemId } = req.params;
     const { productName, category, price, quantity, itemCost } = req.body;
 
     const product = await Product.findById(productId);
