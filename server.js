@@ -273,7 +273,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
-    // ดึงข้อมูล orders
+    // 1. ดึงข้อมูล orders
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
@@ -281,14 +281,24 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       }
     }).lean();
 
-    let totalSales = 0;
+    // 2. ดึงข้อมูล products เพื่อคำนวณต้นทุนรวม
+    const products = await Product.find().lean();
+
+    // 3. คำนวณต้นทุนรวมจากสินค้าทั้งหมด
     let totalCost = 0;
+    products.forEach(product => {
+      product.listProduct.forEach(item => {
+        // คำนวณต้นทุนรวมจาก itemCost * quantity ของแต่ละสินค้า
+        totalCost += (item.itemCost * item.quantity);
+      });
+    });
+
+    // 4. คำนวณข้อมูลอื่นๆ
+    let totalSales = 0;
     let totalProfit = 0;
     const dailySales = {};
     const dailyCosts = {};
     const dailyProfits = {};
-    
-    // สำหรับเก็บข้อมูลสินค้าขายดี
     const productSummary = {};
 
     // วนลูปผ่านแต่ละ order
@@ -314,18 +324,17 @@ app.get('/dashboard/:monthYear', async (req, res) => {
 
           if (productItem) {
             const itemSales = item.price * item.quantity;
-            const itemCost = productItem.itemCost * item.quantity;
-            const itemProfit = itemSales - itemCost;
+            const dailyItemCost = productItem.itemCost * item.quantity;
+            const itemProfit = itemSales - dailyItemCost;
 
             // เพิ่มยอดรายวัน
             dailySales[dayKey] += itemSales;
-            dailyCosts[dayKey] += itemCost;
+            dailyCosts[dayKey] += dailyItemCost;
             dailyProfits[dayKey] += itemProfit;
 
-            // เพิ่มยอดรวม
+            // เพิ่มยอดขายรวม
             totalSales += itemSales;
-            totalCost += itemCost;
-            totalProfit += itemProfit;
+            totalProfit = totalSales - totalCost; // คำนวณกำไรจากต้นทุนรวมทั้งหมด
 
             // สะสมข้อมูลสำหรับสินค้าขายดี
             if (!productSummary[item.barcode]) {
@@ -340,23 +349,23 @@ app.get('/dashboard/:monthYear', async (req, res) => {
             }
             productSummary[item.barcode].quantitySold += item.quantity;
             productSummary[item.barcode].revenue += itemSales;
-            productSummary[item.barcode].cost += itemCost;
+            productSummary[item.barcode].cost += dailyItemCost;
             productSummary[item.barcode].profit += itemProfit;
           }
         }
       }
     }
 
-    // แปลง productSummary เป็น array และเรียงลำดับตามยอดขาย
+    // แปลง productSummary เป็น array และเรียงลำดับ
     const topProducts = Object.values(productSummary)
       .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10); // เอา 10 อันดับแรก
+      .slice(0, 10);
 
     return res.json({
       success: true,
       data: {
         totalSales,
-        totalCost,
+        totalCost, // ต้นทุนรวมจากสินค้าคงเหลือทั้งหมด
         totalProfit,
         dailySales,
         dailyCosts,
