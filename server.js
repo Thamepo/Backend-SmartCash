@@ -272,115 +272,90 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
-
+ 
     console.log('Date range:', { startDate, endDate });
-
-    // 1. ดึงข้อมูล orders
+ 
+    // 1. ดึงข้อมูล orders ในเดือนที่เลือก
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
         $lte: endDate
       }
     });
-
-    console.log('Orders found:', orders.length);
-    console.log('Sample order:', orders[0]);
-
-    // 2. ดึงข้อมูล products
-    const products = await Product.find({
-      lotDate: {
-        $lte: endDate
-      }
-    });
-
-    console.log('Products found:', products.length);
-    console.log('Sample product:', products[0]);
-
-    // 3. คำนวณต้นทุนรวม
-    const totalCost = products.reduce((sum, product) => {
-      console.log('Product cost:', {
-        lotDate: product.lotDate,
-        listProductCount: product.listProduct.length
-      });
-      return sum + (product.cost || 0);
-    }, 0);
-
-    // 4. คำนวณยอดขายรวม
-    const totalSales = orders.reduce((sum, order) => {
-      console.log('Order details:', {
-        date: order.orderDate,
-        amount: order.totalAmount,
-        itemCount: order.items.length
-      });
-      return sum + order.totalAmount;
-    }, 0);
-
-    // 5. คำนวณกำไร/ขาดทุน
-    const totalProfit = totalSales - totalCost;
-
-    console.log('Final calculations:', {
-      totalSales,
-      totalCost,
-      totalProfit,
-      orderCount: orders.length,
-      productCount: products.length
-    });
-
-    // 6. คำนวณข้อมูลรายวัน
+ 
+    // 2. สร้าง dailyData สำหรับเก็บข้อมูลรายวัน
     const dailyData = {};
+    const dailySales = {};
+    const dailyProfits = {};
+ 
+    // 3. วนลูปคำนวณข้อมูลรายวัน
     orders.forEach(order => {
       const dayKey = new Date(order.orderDate).getDate().toString();
+      
+      // เตรียมข้อมูลสำหรับวันนั้นๆ ถ้ายังไม่มี
       if (!dailyData[dayKey]) {
         dailyData[dayKey] = {
           sales: 0,
           items: []
         };
+        dailySales[dayKey] = 0;
+        dailyProfits[dayKey] = 0;
       }
+ 
+      // เพิ่มยอดขายรายวัน
       dailyData[dayKey].sales += order.totalAmount;
+      dailySales[dayKey] += order.totalAmount;
+ 
+      // คำนวณกำไรรายวันจากแต่ละ item
+      const orderProfit = order.items.reduce((sum, item) => {
+        return sum + ((item.price - item.itemCost) * item.quantity);
+      }, 0);
+      dailyProfits[dayKey] += orderProfit;
+ 
+      // เก็บข้อมูล items
       dailyData[dayKey].items.push(...order.items);
     });
-
-    console.log('Daily data sample:', Object.keys(dailyData).slice(0, 2).reduce((obj, key) => {
-      obj[key] = dailyData[key];
-      return obj;
-    }, {}));
-
-    // คำนวณต้นทุนเฉลี่ยต่อวัน
-    const daysInMonth = endDate.getDate();
-    const dailyAverageCost = totalCost / daysInMonth;
-
-    // สร้างข้อมูลกำไร/ขาดทุนรายวัน
-    const dailySales = {};
-    const dailyProfits = {};
-    const dailyCosts = {};
-
-    Object.entries(dailyData).forEach(([day, data]) => {
-      dailySales[day] = data.sales;
-      dailyCosts[day] = dailyAverageCost;
-      dailyProfits[day] = data.sales - dailyAverageCost;
-    });
-
-    console.log('Final daily calculations:', {
-      sampleDay: Object.keys(dailyData)[0],
-      sales: dailySales[Object.keys(dailyData)[0]],
-      costs: dailyCosts[Object.keys(dailyData)[0]],
-      profits: dailyProfits[Object.keys(dailyData)[0]]
-    });
-
+ 
+    // 4. คำนวณยอดรวมทั้งเดือน
+    const totalSales = Object.values(dailySales).reduce((sum, sale) => sum + sale, 0);
+    const totalProfit = Object.values(dailyProfits).reduce((sum, profit) => sum + profit, 0);
+ 
+    // 5. คำนวณข้อมูลสินค้าขายดี
+    const allItems = orders.flatMap(order => order.items);
+    const productSummary = allItems.reduce((acc, item) => {
+      const key = item.productName;
+      if (!acc[key]) {
+        acc[key] = {
+          name: item.productName,
+          category: item.category,
+          quantitySold: 0,
+          revenue: 0,
+          profit: 0
+        };
+      }
+      acc[key].quantitySold += item.quantity;
+      acc[key].revenue += item.price * item.quantity;
+      acc[key].profit += (item.price - item.itemCost) * item.quantity;
+      return acc;
+    }, {});
+ 
+    // แปลงเป็น array และเรียงลำดับตามยอดขาย
+    const topProducts = Object.values(productSummary)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10); // เอา 10 อันดับแรก
+ 
     res.json({
       success: true,
       data: {
         totalSales,
-        totalCost,
         totalProfit,
         dailySales,
         dailyProfits,
-        dailyCosts,
-        topProducts: [],
+        topProducts,
         orderCount: orders.length
       }
     });
-
+ 
   } catch (error) {
     console.error('Error calculating dashboard data:', error);
     res.status(500).json({
@@ -388,7 +363,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       message: 'เกิดข้อผิดพลาดในการคำนวณข้อมูล Dashboard'
     });
   }
-});
+ });
 
 app.get('/orders', async (req, res) => {
   // เพิ่ม console.log เพื่อตรวจสอบการเรียก route
@@ -763,7 +738,7 @@ app.put('/products/:productId/item/:itemId', upload.single('image'), async (req,
       });
     }
 
-
+    // ใช้ itemId แทน productItemId
     const productItem = product.listProduct.id(itemId);
     if (!productItem) {
       return res.status(404).json({
@@ -771,6 +746,7 @@ app.put('/products/:productId/item/:itemId', upload.single('image'), async (req,
         message: 'ไม่พบสินค้าที่ต้องการแก้ไข'
       });
     }
+
     // Handle image upload if a new image is provided
     let imageId = productItem.image; // Keep existing image by default
     if (req.file) {
