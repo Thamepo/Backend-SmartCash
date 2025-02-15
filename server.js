@@ -273,35 +273,27 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
-    console.log('Date range:', { startDate, endDate });
-
     // ดึงข้อมูล orders
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
         $lte: endDate
       }
-    }).lean(); // ใช้ lean() เพื่อเพิ่มประสิทธิภาพ
+    }).lean();
 
-    console.log('Found orders:', orders.length);
-
-    // ตรวจสอบโครงสร้างข้อมูล orders
-    if (orders.length > 0) {
-      console.log('Sample order structure:', JSON.stringify(orders[0], null, 2));
-    }
-
-    // สร้าง object เก็บข้อมูล
     let totalSales = 0;
     let totalCost = 0;
     let totalProfit = 0;
     const dailySales = {};
     const dailyCosts = {};
     const dailyProfits = {};
+    
+    // สำหรับเก็บข้อมูลสินค้าขายดี
+    const productSummary = {};
 
     // วนลูปผ่านแต่ละ order
     for (const order of orders) {
       const dayKey = new Date(order.orderDate).getDate().toString();
-      console.log('Processing order for day:', dayKey);
       
       if (!dailySales[dayKey]) {
         dailySales[dayKey] = 0;
@@ -311,62 +303,54 @@ app.get('/dashboard/:monthYear', async (req, res) => {
 
       // คำนวณข้อมูลจากแต่ละ item
       for (const item of order.items) {
-        try {
-          console.log('Processing item:', item.productName, 'barcode:', item.barcode);
-          
-          // ดึงข้อมูล itemCost จาก Product Collection
-          const product = await Product.findOne({
-            "listProduct._id": item.barcode
-          }).lean();
+        const product = await Product.findOne({
+          "listProduct._id": item.barcode
+        }).lean();
 
-          if (!product) {
-            console.log('Product not found for barcode:', item.barcode);
-            continue;
-          }
-
+        if (product) {
           const productItem = product.listProduct.find(p => 
             p._id.toString() === item.barcode
           );
 
-          if (!productItem) {
-            console.log('Product item not found in list for barcode:', item.barcode);
-            continue;
+          if (productItem) {
+            const itemSales = item.price * item.quantity;
+            const itemCost = productItem.itemCost * item.quantity;
+            const itemProfit = itemSales - itemCost;
+
+            // เพิ่มยอดรายวัน
+            dailySales[dayKey] += itemSales;
+            dailyCosts[dayKey] += itemCost;
+            dailyProfits[dayKey] += itemProfit;
+
+            // เพิ่มยอดรวม
+            totalSales += itemSales;
+            totalCost += itemCost;
+            totalProfit += itemProfit;
+
+            // สะสมข้อมูลสำหรับสินค้าขายดี
+            if (!productSummary[item.barcode]) {
+              productSummary[item.barcode] = {
+                name: item.productName,
+                category: item.category,
+                quantitySold: 0,
+                revenue: 0,
+                cost: 0,
+                profit: 0
+              };
+            }
+            productSummary[item.barcode].quantitySold += item.quantity;
+            productSummary[item.barcode].revenue += itemSales;
+            productSummary[item.barcode].cost += itemCost;
+            productSummary[item.barcode].profit += itemProfit;
           }
-
-          const itemSales = item.price * item.quantity;
-          const itemCost = productItem.itemCost * item.quantity;
-          const itemProfit = itemSales - itemCost;
-
-          console.log('Item calculations:', {
-            sales: itemSales,
-            cost: itemCost,
-            profit: itemProfit
-          });
-
-          // เพิ่มยอดรายวัน
-          dailySales[dayKey] += itemSales;
-          dailyCosts[dayKey] += itemCost;
-          dailyProfits[dayKey] += itemProfit;
-
-          // เพิ่มยอดรวม
-          totalSales += itemSales;
-          totalCost += itemCost;
-          totalProfit += itemProfit;
-        } catch (itemError) {
-          console.error('Error processing item:', itemError);
-          continue;
         }
       }
     }
 
-    console.log('Final calculations:', {
-      totalSales,
-      totalCost,
-      totalProfit,
-      dailySales,
-      dailyCosts,
-      dailyProfits
-    });
+    // แปลง productSummary เป็น array และเรียงลำดับตามยอดขาย
+    const topProducts = Object.values(productSummary)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10); // เอา 10 อันดับแรก
 
     return res.json({
       success: true,
@@ -377,6 +361,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
         dailySales,
         dailyCosts,
         dailyProfits,
+        topProducts,
         orderCount: orders.length
       }
     });
