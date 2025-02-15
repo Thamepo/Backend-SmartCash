@@ -272,129 +272,108 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
- 
+
     console.log('Date range:', { startDate, endDate });
- 
-    // 1. ดึงข้อมูล orders ในเดือนที่เลือก
+
+    // 1. ดึงข้อมูล orders
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
         $lte: endDate
       }
     });
- 
-    // 2. สร้าง dailyData สำหรับเก็บข้อมูลรายวัน
+
+    console.log('Orders found:', orders.length);
+
+    // 2. คำนวณยอดขายรวม กำไรขาดทุนรวม และต้นทุนรวม
+    let totalSales = 0;
+    let totalProfit = 0;
+    let totalCost = 0;
+
+    // 3. สร้างข้อมูลรายวัน
     const dailyData = {};
     const dailySales = {};
     const dailyProfits = {};
- 
-    // 3. วนลูปคำนวณข้อมูลรายวัน
+    const dailyCosts = {};
+
+    // 4. วนลูปคำนวณข้อมูลรายวันและยอดรวม
     orders.forEach(order => {
       const dayKey = new Date(order.orderDate).getDate().toString();
       
-      // เตรียมข้อมูลสำหรับวันนั้นๆ ถ้ายังไม่มี
+      // เตรียมข้อมูลรายวัน
       if (!dailyData[dayKey]) {
         dailyData[dayKey] = {
           sales: 0,
+          profit: 0,
+          cost: 0,
           items: []
         };
         dailySales[dayKey] = 0;
         dailyProfits[dayKey] = 0;
+        dailyCosts[dayKey] = 0;
       }
- 
-      // เพิ่มยอดขายรายวัน
-      dailyData[dayKey].sales += order.totalAmount;
-      dailySales[dayKey] += order.totalAmount;
- 
-      // คำนวณกำไรรายวันจากแต่ละ item
-      const orderProfit = order.items.reduce((sum, item) => {
-        return sum + ((item.price - item.itemCost) * item.quantity);
-      }, 0);
+
+      // คำนวณยอดขาย ต้นทุน และกำไรของแต่ละ order
+      let orderSales = 0;
+      let orderProfit = 0;
+      let orderCost = 0;
+
+      order.items.forEach(item => {
+        const itemSales = item.price * item.quantity;
+        const itemCost = item.itemCost * item.quantity;
+        const itemProfit = itemSales - itemCost;
+        
+        orderSales += itemSales;
+        orderCost += itemCost;
+        orderProfit += itemProfit;
+      });
+
+      // เพิ่มยอดในแต่ละวัน
+      dailySales[dayKey] += orderSales;
+      dailyCosts[dayKey] += orderCost;
       dailyProfits[dayKey] += orderProfit;
- 
+
+      // เพิ่มยอดรวม
+      totalSales += orderSales;
+      totalCost += orderCost;
+      totalProfit += orderProfit;
+
       // เก็บข้อมูล items
       dailyData[dayKey].items.push(...order.items);
     });
- 
-    // 4. คำนวณยอดรวมทั้งเดือน
-    const totalSales = Object.values(dailySales).reduce((sum, sale) => sum + sale, 0);
-    const totalProfit = Object.values(dailyProfits).reduce((sum, profit) => sum + profit, 0);
- 
-    // 5. คำนวณข้อมูลสินค้าขายดี
-    const allItems = orders.flatMap(order => order.items);
-    const productSummary = allItems.reduce((acc, item) => {
-      const key = item.productName;
-      if (!acc[key]) {
-        acc[key] = {
-          name: item.productName,
-          category: item.category,
-          quantitySold: 0,
-          revenue: 0,
-          profit: 0
-        };
-      }
-      acc[key].quantitySold += item.quantity;
-      acc[key].revenue += item.price * item.quantity;
-      acc[key].profit += (item.price - item.itemCost) * item.quantity;
-      return acc;
-    }, {});
- 
-    // แปลงเป็น array และเรียงลำดับตามยอดขาย
-    const topProducts = Object.values(productSummary)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10); // เอา 10 อันดับแรก
- 
+
+    console.log('Final calculations:', {
+      totalSales,
+      totalCost,
+      totalProfit,
+      orderCount: orders.length
+    });
+
+    console.log('Daily data:', {
+      sales: dailySales,
+      costs: dailyCosts,
+      profits: dailyProfits
+    });
+
     res.json({
       success: true,
       data: {
         totalSales,
+        totalCost,
         totalProfit,
         dailySales,
+        dailyCosts,
         dailyProfits,
-        topProducts,
+        topProducts: [], // คุณสามารถเพิ่มการคำนวณ topProducts ได้ตามต้องการ
         orderCount: orders.length
       }
     });
- 
+
   } catch (error) {
     console.error('Error calculating dashboard data:', error);
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการคำนวณข้อมูล Dashboard'
-    });
-  }
- });
-
-app.get('/orders', async (req, res) => {
-  // เพิ่ม console.log เพื่อตรวจสอบการเรียก route
-  console.log('Request received at /orders');
-  console.log('Query parameters:', req.query);
-
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    console.log('Page:', page, 'Limit:', limit, 'Skip:', skip);
-
-    const orders = await Order.find()
-      .sort({ orderDate: -1 }) 
-      .skip(skip)
-      .limit(limit);
-
-    console.log('Found orders:', orders.length);
-
-    res.json({
-      success: true,
-      data: orders,
-      page,
-      totalOrders: await Order.countDocuments()
-    });
-  } catch (error) {
-    console.error('Error in /orders route:', error);
-    res.status(500).json({
-      success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลออเดอร์'
     });
   }
 });
