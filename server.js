@@ -264,16 +264,15 @@ app.patch('/products/updatebarcode/:productId', async (req, res) => {
   }
 });
 
+// In the /dashboard/:monthYear endpoint
 app.get('/dashboard/:monthYear', async (req, res) => {
   try {
     const { monthYear } = req.params;
     const [month, year] = monthYear.split('-').map(Number);
     
-    // Create date range for the selected month
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
-    // Fetch orders for the selected month
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
@@ -281,27 +280,40 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       }
     });
 
-    // Fetch all products to get costs
     const products = await Product.find();
 
-    // Calculate total sales and gather product statistics
     let totalSales = 0;
     let totalCost = 0;
     const productStats = {};
-    
-    // เพิ่มการคำนวณรายวัน
     const dailySales = {};
+    const dailyProfits = {}; // New object to track daily profits
+    const dailyCosts = {}; // New object to track daily costs
+
+    // Calculate average daily cost
+    const daysInMonth = endDate.getDate();
+    const dailyAverageCost = products.reduce((acc, product) => acc + (product.cost || 0), 0) / daysInMonth;
 
     // Process orders
     orders.forEach(order => {
-      totalSales += order.totalAmount;
-      
-      // คำนวณยอดขายรายวัน
       const orderDate = new Date(order.orderDate);
       const dayKey = orderDate.getDate();
-      dailySales[dayKey] = (dailySales[dayKey] || 0) + order.totalAmount;
       
-      // Process each item in the order
+      // Initialize daily tracking objects if needed
+      if (!dailySales[dayKey]) {
+        dailySales[dayKey] = 0;
+        dailyCosts[dayKey] = dailyAverageCost; // Assign average daily cost
+        dailyProfits[dayKey] = 0;
+      }
+      
+      // Add sales to daily total
+      dailySales[dayKey] += order.totalAmount;
+      
+      // Calculate daily profit
+      dailyProfits[dayKey] = dailySales[dayKey] - dailyCosts[dayKey];
+      
+      totalSales += order.totalAmount;
+      
+      // Process products stats
       order.items.forEach(item => {
         if (!productStats[item.productName]) {
           productStats[item.productName] = {
@@ -320,17 +332,13 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     });
 
     // Calculate total cost from products
-    products.forEach(product => {
-      totalCost += product.cost || 0;
-    });
+    totalCost = products.reduce((acc, product) => acc + (product.cost || 0), 0);
+    const totalProfit = totalSales - totalCost;
 
-    // Convert productStats object to array and sort by revenue
+    // Convert productStats to array and sort
     const topProducts = Object.values(productStats)
       .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5); // Get top 5 products
-
-    // Calculate total profit
-    const totalProfit = totalSales - totalCost;
+      .slice(0, 5);
 
     res.json({
       success: true,
@@ -338,7 +346,9 @@ app.get('/dashboard/:monthYear', async (req, res) => {
         totalSales,
         totalCost,
         totalProfit,
-        dailySales, // เพิ่ม dailySales เป็นออบเจ็กต์
+        dailySales,
+        dailyProfits, // Add daily profits to response
+        dailyCosts, // Add daily costs to response
         topProducts,
         orderCount: orders.length,
         monthlyStats: {
