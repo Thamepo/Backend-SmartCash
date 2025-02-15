@@ -37,10 +37,6 @@ const ProductSchema = new mongoose.Schema({
     type: Date, 
     required: true 
   },
-  cost: { 
-    type: Number, 
-    required: true 
-  },
   listProduct: [ListProductSchema]  // Array ของสินค้า
 }, {
   timestamps: true  // เพิ่ม createdAt และ updatedAt
