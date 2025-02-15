@@ -275,7 +275,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
 
     console.log('Date range:', { startDate, endDate });
 
-    // 1. ดึงข้อมูล orders
+    // ดึงข้อมูล orders ในเดือนที่เลือก
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
@@ -285,76 +285,57 @@ app.get('/dashboard/:monthYear', async (req, res) => {
 
     console.log('Orders found:', orders.length);
 
-    // 2. คำนวณยอดขายรวม กำไรขาดทุนรวม และต้นทุนรวม
+    // เตรียมตัวแปรสำหรับเก็บข้อมูล
     let totalSales = 0;
-    let totalProfit = 0;
     let totalCost = 0;
-
-    // 3. สร้างข้อมูลรายวัน
-    const dailyData = {};
+    let totalProfit = 0;
     const dailySales = {};
-    const dailyProfits = {};
     const dailyCosts = {};
+    const dailyProfits = {};
 
-    // 4. วนลูปคำนวณข้อมูลรายวันและยอดรวม
+    // วนลูปผ่านแต่ละ order เพื่อคำนวณ
     orders.forEach(order => {
       const dayKey = new Date(order.orderDate).getDate().toString();
       
       // เตรียมข้อมูลรายวัน
-      if (!dailyData[dayKey]) {
-        dailyData[dayKey] = {
-          sales: 0,
-          profit: 0,
-          cost: 0,
-          items: []
-        };
+      if (!dailySales[dayKey]) {
         dailySales[dayKey] = 0;
-        dailyProfits[dayKey] = 0;
         dailyCosts[dayKey] = 0;
+        dailyProfits[dayKey] = 0;
       }
 
-      // คำนวณยอดขาย ต้นทุน และกำไรของแต่ละ order
-      let orderSales = 0;
-      let orderProfit = 0;
-      let orderCost = 0;
-
+      // คำนวณข้อมูลจากแต่ละ item ใน order
       order.items.forEach(item => {
         const itemSales = item.price * item.quantity;
         const itemCost = item.itemCost * item.quantity;
         const itemProfit = itemSales - itemCost;
-        
-        orderSales += itemSales;
-        orderCost += itemCost;
-        orderProfit += itemProfit;
+
+        // เพิ่มยอดรายวัน
+        dailySales[dayKey] += itemSales;
+        dailyCosts[dayKey] += itemCost;
+        dailyProfits[dayKey] += itemProfit;
+
+        // เพิ่มยอดรวม
+        totalSales += itemSales;
+        totalCost += itemCost;
+        totalProfit += itemProfit;
       });
-
-      // เพิ่มยอดในแต่ละวัน
-      dailySales[dayKey] += orderSales;
-      dailyCosts[dayKey] += orderCost;
-      dailyProfits[dayKey] += orderProfit;
-
-      // เพิ่มยอดรวม
-      totalSales += orderSales;
-      totalCost += orderCost;
-      totalProfit += orderProfit;
-
-      // เก็บข้อมูล items
-      dailyData[dayKey].items.push(...order.items);
     });
 
-    console.log('Final calculations:', {
-      totalSales,
-      totalCost,
-      totalProfit,
-      orderCount: orders.length
-    });
-
-    console.log('Daily data:', {
+    // Log เพื่อตรวจสอบ
+    console.log('Daily calculations:', {
       sales: dailySales,
       costs: dailyCosts,
       profits: dailyProfits
     });
 
+    console.log('Total calculations:', {
+      totalSales,
+      totalCost,
+      totalProfit
+    });
+
+    // ส่งข้อมูลกลับ frontend
     res.json({
       success: true,
       data: {
@@ -374,6 +355,40 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการคำนวณข้อมูล Dashboard'
+    });
+  }
+});
+
+app.get('/orders', async (req, res) => {
+  // เพิ่ม console.log เพื่อตรวจสอบการเรียก route
+  console.log('Request received at /orders');
+  console.log('Query parameters:', req.query);
+
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    console.log('Page:', page, 'Limit:', limit, 'Skip:', skip);
+
+    const orders = await Order.find()
+      .sort({ orderDate: -1 }) 
+      .skip(skip)
+      .limit(limit);
+
+    console.log('Found orders:', orders.length);
+
+    res.json({
+      success: true,
+      data: orders,
+      page,
+      totalOrders: await Order.countDocuments()
+    });
+  } catch (error) {
+    console.error('Error in /orders route:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลออเดอร์'
     });
   }
 });
@@ -725,7 +740,7 @@ app.put('/products/:productId/item/:itemId', upload.single('image'), async (req,
         message: 'ไม่พบสินค้าที่ต้องการแก้ไข'
       });
     }
-
+    
     // Handle image upload if a new image is provided
     let imageId = productItem.image; // Keep existing image by default
     if (req.file) {
