@@ -390,6 +390,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     });
   }
 });
+
 app.get('/orders', async (req, res) => {
   // เพิ่ม console.log เพื่อตรวจสอบการเรียก route
   console.log('Request received at /orders');
@@ -469,6 +470,7 @@ app.post('/addproducts/:productId', upload.single('image'), async (req, res) => 
       name: productName,
       category,
       price: Number(price),
+      itemCost: Number(itemCost),
       image: imageId,
       quantity: Number(quantity),
     };
