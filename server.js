@@ -273,7 +273,9 @@ app.get('/dashboard/:monthYear', async (req, res) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0);
 
-    // 1. ดึงข้อมูล orders ในเดือนที่ต้องการ
+    console.log('Date range:', { startDate, endDate });
+
+    // 1. ดึงข้อมูล orders
     const orders = await Order.find({
       orderDate: {
         $gte: startDate,
@@ -281,35 +283,68 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       }
     });
 
-    // 2. ดึงข้อมูล products ทั้งหมดที่อยู่ในช่วงเวลา
+    console.log('Orders found:', orders.length);
+    console.log('Sample order:', orders[0]);
+
+    // 2. ดึงข้อมูล products
     const products = await Product.find({
       lotDate: {
         $lte: endDate
       }
     });
 
-    // 3. คำนวณต้นทุนรวมจากทุกล็อตสินค้า
-    const totalCost = products.reduce((sum, product) => sum + (product.cost || 0), 0);
+    console.log('Products found:', products.length);
+    console.log('Sample product:', products[0]);
 
-    // 4. คำนวณยอดขายรวมจากทุก orders
-    const totalSales = orders.reduce((sum, order) => sum + order.totalAmount, 0);
+    // 3. คำนวณต้นทุนรวม
+    const totalCost = products.reduce((sum, product) => {
+      console.log('Product cost:', {
+        lotDate: product.lotDate,
+        cost: product.cost,
+        listProductCount: product.listProduct.length
+      });
+      return sum + (product.cost || 0);
+    }, 0);
 
-    // 5. คำนวณกำไร/ขาดทุนรวม (กำไร = รายได้ - ต้นทุน)
+    // 4. คำนวณยอดขายรวม
+    const totalSales = orders.reduce((sum, order) => {
+      console.log('Order details:', {
+        date: order.orderDate,
+        amount: order.totalAmount,
+        itemCount: order.items.length
+      });
+      return sum + order.totalAmount;
+    }, 0);
+
+    // 5. คำนวณกำไร/ขาดทุน
     const totalProfit = totalSales - totalCost;
+
+    console.log('Final calculations:', {
+      totalSales,
+      totalCost,
+      totalProfit,
+      orderCount: orders.length,
+      productCount: products.length
+    });
 
     // 6. คำนวณข้อมูลรายวัน
     const dailyData = {};
-    
-    // เตรียมข้อมูลรายวัน
     orders.forEach(order => {
       const dayKey = new Date(order.orderDate).getDate().toString();
       if (!dailyData[dayKey]) {
         dailyData[dayKey] = {
-          sales: 0
+          sales: 0,
+          items: []
         };
       }
       dailyData[dayKey].sales += order.totalAmount;
+      dailyData[dayKey].items.push(...order.items);
     });
+
+    console.log('Daily data sample:', Object.keys(dailyData).slice(0, 2).reduce((obj, key) => {
+      obj[key] = dailyData[key];
+      return obj;
+    }, {}));
 
     // คำนวณต้นทุนเฉลี่ยต่อวัน
     const daysInMonth = endDate.getDate();
@@ -326,11 +361,11 @@ app.get('/dashboard/:monthYear', async (req, res) => {
       dailyProfits[day] = data.sales - dailyAverageCost;
     });
 
-    console.log('Debug ค่าที่คำนวณได้:', {
-      totalSales,
-      totalCost,
-      totalProfit,
-      firstDayProfit: dailyProfits['1'], // ตัวอย่างกำไรวันแรก
+    console.log('Final daily calculations:', {
+      sampleDay: Object.keys(dailyData)[0],
+      sales: dailySales[Object.keys(dailyData)[0]],
+      costs: dailyCosts[Object.keys(dailyData)[0]],
+      profits: dailyProfits[Object.keys(dailyData)[0]]
     });
 
     res.json({
@@ -342,7 +377,7 @@ app.get('/dashboard/:monthYear', async (req, res) => {
         dailySales,
         dailyProfits,
         dailyCosts,
-        topProducts: [], // ปรับตามที่คุณต้องการ
+        topProducts: [],
         orderCount: orders.length
       }
     });
